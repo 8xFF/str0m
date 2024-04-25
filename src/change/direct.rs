@@ -1,10 +1,10 @@
 use crate::channel::ChannelId;
-use crate::dtls::Fingerprint;
-use crate::ice::IceCreds;
+use crate::crypto::Fingerprint;
 use crate::media::{Media, MediaKind};
 use crate::rtp_::{Mid, Rid, Ssrc};
 use crate::sctp::ChannelConfig;
 use crate::streams::{StreamRx, StreamTx, DEFAULT_RTX_CACHE_DURATION};
+use crate::IceCreds;
 use crate::Rtc;
 use crate::RtcError;
 
@@ -211,7 +211,7 @@ impl<'a> DirectApi<'a> {
 
     /// Obtain a recv stream by looking it up via mid/rid.
     pub fn stream_rx_by_mid(&mut self, mid: Mid, rid: Option<Rid>) -> Option<&mut StreamRx> {
-        self.rtc.session.streams.rx_by_mid_rid(mid, rid)
+        self.rtc.session.streams.stream_rx_by_mid_rid(mid, rid)
     }
 
     /// Declare the intention to send data using the given SSRC.
@@ -267,6 +267,6 @@ impl<'a> DirectApi<'a> {
 
     /// Obtain a send stream by looking it up via mid/rid.
     pub fn stream_tx_by_mid(&mut self, mid: Mid, rid: Option<Rid>) -> Option<&mut StreamTx> {
-        self.rtc.session.streams.tx_by_mid_rid(mid, rid)
+        self.rtc.session.streams.stream_tx_by_mid_rid(mid, rid)
     }
 }

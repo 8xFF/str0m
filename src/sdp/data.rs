@@ -7,14 +7,13 @@ use std::num::ParseFloatError;
 use std::ops::Deref;
 use std::str::FromStr;
 
-use crate::dtls::Fingerprint;
+use crate::crypto::Fingerprint;
 use crate::format::Codec;
 use crate::format::CodecSpec;
 use crate::format::FormatParams;
 use crate::format::PayloadParams;
-use crate::ice::{Candidate, IceCreds};
 use crate::rtp_::{Direction, Extension, Frequency, Mid, Pt, Rid, SessionId, Ssrc};
-use crate::VERSION;
+use crate::{Candidate, IceCreds, VERSION};
 
 use super::parser::sdp_parser;
 use super::SdpError;
@@ -26,38 +25,33 @@ pub struct Sdp {
 }
 
 impl Sdp {
-    #[doc(hidden)]
-    pub fn parse(input: &str) -> Result<Sdp, SdpError> {
+    pub(crate) fn parse(input: &str) -> Result<Sdp, SdpError> {
         sdp_parser()
             .easy_parse(input)
             .map(|(sdp, _)| sdp)
             .map_err(|e| SdpError::ParseError(e.to_string()))
     }
 
-    #[doc(hidden)]
-    pub fn assert_consistency(&self) -> Result<(), SdpError> {
+    pub(crate) fn assert_consistency(&self) -> Result<(), SdpError> {
         match self.do_assert_consistency() {
             None => Ok(()),
             Some(error) => Err(SdpError::Inconsistent(error)),
         }
     }
 
-    #[doc(hidden)]
-    pub fn fingerprint(&self) -> Option<Fingerprint> {
+    pub(crate) fn fingerprint(&self) -> Option<Fingerprint> {
         self.session
             .fingerprint()
             .or_else(|| self.media_lines.iter().find_map(|m| m.fingerprint()))
     }
 
-    #[doc(hidden)]
-    pub fn ice_creds(&self) -> Option<IceCreds> {
+    pub(crate) fn ice_creds(&self) -> Option<IceCreds> {
         self.session
             .ice_creds()
             .or_else(|| self.media_lines.iter().find_map(|m| m.ice_creds()))
     }
 
-    #[doc(hidden)]
-    pub fn ice_candidates(&self) -> impl Iterator<Item = &Candidate> {
+    pub(crate) fn ice_candidates(&self) -> impl Iterator<Item = &Candidate> {
         let mut candidates: HashSet<&Candidate> = HashSet::new();
 
         // Session level ice candidates.
@@ -71,8 +65,7 @@ impl Sdp {
         candidates.into_iter()
     }
 
-    #[doc(hidden)]
-    pub fn setup(&self) -> Option<Setup> {
+    pub(crate) fn setup(&self) -> Option<Setup> {
         self.session
             .setup()
             .or_else(|| self.media_lines.iter().find_map(|m| m.setup()))
@@ -711,6 +704,8 @@ pub enum MediaType {
     Audio,
     Video,
     Application,
+    // If a parsed SDP has a value we don't recognize, we stick it
+    // in here. We could consider making that a parse exception instead.
     #[doc(hidden)]
     Unknown(String),
 }
@@ -887,6 +882,9 @@ pub enum FormatParam {
     /// Specifies that the decoder can do Opus in-band FEC
     UseInbandFec(bool),
 
+    /// Specifies that the decoder can do Opus DTX
+    UseDtx(bool),
+
     /// Whether h264 sending media encoded at a different level in the offerer-to-answerer
     /// direction than the level in the answerer-to-offerer direction, is allowed.
     LevelAsymmetryAllowed(bool),
@@ -928,6 +926,7 @@ impl FormatParam {
                 }
             }
             "useinbandfec" => UseInbandFec(v == "1"),
+            "usedtx" => UseDtx(v == "1"),
             "level-asymmetry-allowed" => LevelAsymmetryAllowed(v == "1"),
             "packetization-mode" => {
                 if let Ok(v) = v.parse() {
@@ -972,6 +971,7 @@ impl fmt::Display for FormatParam {
         match self {
             MinPTime(v) => write!(f, "minptime={v}"),
             UseInbandFec(v) => write!(f, "useinbandfec={}", i32::from(*v)),
+            UseDtx(v) => write!(f, "usedtx={}", i32::from(*v)),
             LevelAsymmetryAllowed(v) => {
                 write!(f, "level-asymmetry-allowed={}", i32::from(*v))
             }

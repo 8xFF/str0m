@@ -78,7 +78,6 @@
 //! ```no_run
 //! # use str0m::{Rtc, Candidate};
 //! # use str0m::media::{MediaKind, Direction};
-//! #
 //! // Instantiate a new Rtc instance.
 //! let mut rtc = Rtc::new();
 //!
@@ -119,7 +118,6 @@
 //! # use std::net::UdpSocket;
 //! # use std::time::Instant;
 //! # let rtc = Rtc::new();
-//! #
 //! // Buffer for reading incoming UDP packets.
 //! let mut buf = vec![0; 2000];
 //!
@@ -220,7 +218,6 @@
 //! # use str0m::Rtc;
 //! # use str0m::media::Mid;
 //! # let rtc: Rtc = todo!();
-//! #
 //! // Obtain mid from Event::MediaAdded
 //! let mid: Mid = todo!();
 //!
@@ -338,9 +335,9 @@
 //! Str0m defaults to the "sample level" which treats the RTP as an internal detail. The user
 //! will thus mainly interact with:
 //!
-//! 1. [`Event::MediaData`] to receive full "samples" (audio frames or video frames).
-//! 2. [`Writer::write`][crate::media::Writer::write] to write full samples.
-//! 3. [`Writer::request_keyframe`][crate::media::Writer::request_keyframe] to request keyframes.
+//! 1. [`Event::MediaData`][evmed] to receive full "samples" (audio frames or video frames).
+//! 2. [`Writer::write`][writer] to write full samples.
+//! 3. [`Writer::request_keyframe`][reqkey] to request keyframes.
 //!
 //! ### Sample level
 //!
@@ -354,18 +351,13 @@
 //! one they are too big. Samples are therefore further chunked up by
 //! codec specific payloaders into RTP packets.
 //!
-//! ### RTP level
+//! ### RTP mode
 //!
 //! Str0m also provides an RTP level API. This would be similar to many other
 //! RTP libraries where the RTP packets themselves are the the API surface
 //! towards the user (when building an SFU one would often talk about "forwarding
-//! RTP packets", while with str0m we can also "forward samples").
-//!
-//! ### RTP mode
-//!
-//! str0m has a lower level API which let's the user write/receive RTP
-//! packets directly. Using this API requires a deeper knowledge of
-//! RTP and WebRTC.
+//! RTP packets", while with str0m we can also "forward samples").  Using
+//! this API requires a deeper knowledge of RTP and WebRTC.
 //!
 //! To enable RTP mode
 //!
@@ -380,10 +372,10 @@
 //!
 //! RTP mode gives us some new API points.
 //!
-//! 1. [`Event::RtpPacket`] emitted for every incoming RTP packet. Empty packets for bandwidth
+//! 1. [`Event::RtpPacket`][rtppak] emitted for every incoming RTP packet. Empty packets for bandwidth
 //!    estimation are silently discarded.
-//! 2. [`StreamTx::write_rtp`][crate::rtp::StreamTx::write_rtp] to write outgoing RTP packets.
-//! 3. [`StreamRx::request_keyframe`][crate::rtp::StreamRx::request_keyframe] to request keyframes from remote.
+//! 2. [`StreamTx::write_rtp`][wrtrtp] to write outgoing RTP packets.
+//! 3. [`StreamRx::request_keyframe`][reqkey2] to request keyframes from remote.
 //!
 //! ## NIC enumeration and TURN (and STUN)
 //!
@@ -445,7 +437,7 @@
 //!
 //! ## Panics, Errors and unwraps
 //!
-//! Rust adheres to [fail-fast][ff]. That means rather than brushing state
+//! Str0m adheres to [fail-fast][ff]. That means rather than brushing state
 //! bugs under the carpet, it panics. We make a distinction between errors and
 //! bugs.
 //!
@@ -569,12 +561,19 @@
 //! [intg]:       https://github.com/algesten/str0m/blob/main/tests/unidirectional.rs#L12
 //! [ff]:         https://en.wikipedia.org/wiki/Fail-fast
 //! [catch]:      https://doc.rust-lang.org/std/panic/fn.catch_unwind.html
+//! [evmed]:      https://docs.rs/str0m/*/str0m/enum.Event.html#variant.MediaData
+//! [writer]:     https://docs.rs/str0m/*/str0m/media/struct.Writer.html#method.write
+//! [reqkey]:     https://docs.rs/str0m/*/str0m/media/struct.Writer.html#method.request_keyframe
+//! [rtppak]:     https://docs.rs/str0m/*/str0m/enum.Event.html#variant.RtpPacket
+//! [wrtrtp]:     https://docs.rs/str0m/*/str0m/rtp/struct.StreamTx.html#method.write_rtp
+//! [reqkey2]:    https://docs.rs/str0m/*/str0m/rtp/struct.StreamRx.html#method.request_keyframe
 
 #![forbid(unsafe_code)]
 #![allow(clippy::new_without_default)]
 #![allow(clippy::bool_to_int_with_if)]
 #![allow(clippy::assertions_on_constants)]
 #![allow(clippy::manual_range_contains)]
+#![allow(clippy::get_first)]
 #![deny(missing_docs)]
 
 #[macro_use]
@@ -591,19 +590,33 @@ use streams::StreamPaused;
 use thiserror::Error;
 use util::InstantExt;
 
+mod crypto;
+use crypto::Fingerprint;
+
 mod dtls;
 use dtls::DtlsCert;
-use dtls::Fingerprint;
 use dtls::{Dtls, DtlsEvent};
 
-mod ice;
-use ice::IceAgent;
-use ice::IceAgentEvent;
-use ice::IceCreds;
-pub use ice::{Candidate, CandidateKind};
+#[path = "ice/mod.rs"]
+mod ice_;
+use ice_::IceAgent;
+use ice_::IceAgentEvent;
+pub use ice_::{Candidate, CandidateKind, IceConnectionState, IceCreds};
+
+/// Low level ICE access.
+// The ICE API is not necessary to interact with directly for "regular"
+// use of str0m. This is exported for other libraries that want to
+// reuse str0m's ICE implementation. In the future we might turn this
+// into a separate crate.
+#[doc(hidden)]
+pub mod ice {
+    pub use crate::ice_::IceCreds;
+    pub use crate::ice_::{IceAgent, IceAgentEvent};
+    pub use crate::io::{StunMessage, StunPacket};
+}
 
 mod io;
-use io::DatagramRecv;
+use io::DatagramRecvInner;
 
 mod packet;
 
@@ -623,6 +636,8 @@ pub mod rtp {
     }
     use self::rtcp::Rtcp;
 
+    /// Video Layers Allocation RTP Header Extension
+    pub mod vla;
     pub use crate::rtp_::{Extension, ExtensionMap, ExtensionSerializer};
     pub use crate::rtp_::{ExtensionValues, UserExtensionValues};
 
@@ -657,8 +672,6 @@ mod sdp;
 pub mod format;
 use format::CodecConfig;
 
-pub use ice::IceConnectionState;
-
 pub mod channel;
 use channel::{Channel, ChannelData, ChannelHandler, ChannelId};
 
@@ -688,7 +701,7 @@ pub mod net {
 /// Various error types.
 pub mod error {
     pub use crate::dtls::DtlsError;
-    pub use crate::ice::IceError;
+    pub use crate::ice_::IceError;
     pub use crate::io::NetError;
     pub use crate::packet::PacketError;
     pub use crate::rtp_::RtpError;
@@ -829,6 +842,7 @@ pub struct Rtc {
     remote_fingerprint: Option<Fingerprint>,
     remote_addrs: Vec<SocketAddr>,
     send_addr: Option<SendAddr>,
+    need_init_time: bool,
     last_now: Instant,
     peer_bytes_rx: u64,
     peer_bytes_tx: u64,
@@ -929,10 +943,6 @@ pub enum Event {
     /// This clones data, and is therefore expensive.
     /// Should not be enabled outside of tests and troubleshooting.
     RawPacket(Box<RawPacket>),
-
-    /// Internal for passing data from Session to Rtc.
-    #[doc(hidden)]
-    Error(RtcError),
 }
 
 impl Event {
@@ -948,6 +958,7 @@ impl Event {
 
 /// Input as expected by [`Rtc::handle_input()`]. Either network data or a timeout.
 #[derive(Debug)]
+#[allow(clippy::large_enum_variant)] // We purposely don't want to allocate.
 pub enum Input<'a> {
     /// A timeout without any network input.
     Timeout(Instant),
@@ -999,19 +1010,29 @@ impl Rtc {
     pub(crate) fn new_from_config(config: RtcConfig) -> Self {
         let session = Session::new(&config);
 
-        let mut ice = IceAgent::with_local_credentials(config.local_ice_credentials);
+        let local_creds = config.local_ice_credentials.unwrap_or_else(IceCreds::new);
+        let mut ice = IceAgent::with_local_credentials(local_creds);
         if config.ice_lite {
             ice.set_ice_lite(config.ice_lite);
         }
 
+        let dtls_cert = if let Some(c) = config.dtls_cert {
+            c
+        } else {
+            #[cfg(feature = "openssl")]
+            {
+                DtlsCert::new_openssl()
+            }
+            #[cfg(not(feature = "openssl"))]
+            {
+                panic!("No DTLS implementation. Enable openssl feature");
+            }
+        };
+
         Rtc {
             alive: true,
             ice,
-            dtls: Dtls::new(
-                config.dtls_cert.unwrap_or_else(DtlsCert::new),
-                config.fingerprint_verification,
-            )
-            .expect("DTLS to init without problem"),
+            dtls: Dtls::new(dtls_cert).expect("DTLS to init without problem"),
             session,
             sctp: RtcSctp::new(),
             chan: ChannelHandler::default(),
@@ -1019,6 +1040,7 @@ impl Rtc {
             remote_fingerprint: None,
             remote_addrs: vec![],
             send_addr: None,
+            need_init_time: true,
             last_now: already_happened(),
             peer_bytes_rx: 0,
             peer_bytes_tx: 0,
@@ -1387,11 +1409,12 @@ impl Rtc {
         }
 
         if let Some(ev) = self.session.poll_event() {
-            if let Event::Error(err) = ev {
-                return Err(err);
-            } else {
-                return Ok(Output::Event(ev));
-            }
+            return Ok(Output::Event(ev));
+        }
+
+        // Some polling needs to bubble up errors.
+        if let Some(ev) = self.session.poll_event_fallible()? {
+            return Ok(Output::Event(ev));
         }
 
         if let Some(e) = self.stats.as_mut().and_then(|s| s.poll_output()) {
@@ -1450,7 +1473,8 @@ impl Rtc {
     /// [`Input::Timeout`] is always accepted. [`Input::Receive`] is tested against the nominated
     /// ICE candidate. If that doesn't match and the incoming data is a STUN packet, the accept call
     /// is delegated to the ICE agent which recognizes the remote peer from `a=ufrag`/`a=password`
-    /// credentials negotiated in the SDP.
+    /// credentials negotiated in the SDP. If that also doesn't match, all remote ICE candidates are
+    /// checked for a match.
     ///
     /// In a server setup, the server would try to find an `Rtc` instances using [`Rtc::accepts()`].
     /// The first found instance would be given the input via [`Rtc::handle_input()`].
@@ -1479,11 +1503,9 @@ impl Rtc {
             return true;
         };
 
-        // This should cover Dtls, Rtp and Rtcp
+        // Fast path: DTLS, RTP, and RTCP traffic coming in from the same socket address
+        // we've nominated for sending via the ICE agent. This is the typical case
         if let Some(send_addr) = &self.send_addr {
-            // TODO: This assume symmetrical routing, i.e. we are getting
-            // the incoming traffic from a remote peer from the same socket address
-            // we've nominated for sending via the ICE agent.
             if r.source == send_addr.destination {
                 return true;
             }
@@ -1491,8 +1513,15 @@ impl Rtc {
 
         // STUN can use the ufrag/password to identify that a message belongs
         // to this Rtc instance.
-        if let DatagramRecv::Stun(v) = &r.contents {
+        if let DatagramRecvInner::Stun(v) = &r.contents.inner {
             return self.ice.accepts_message(v);
+        }
+
+        // Slow path: Occasionally, traffic comes in on a socket address corresponding
+        // to a successful candidate pair other than the one we've currently nominated.
+        // This typically happens at the beginning of the connection
+        if self.ice.has_viable_remote_candidate(r.source) {
+            return true;
         }
 
         false
@@ -1538,9 +1567,16 @@ impl Rtc {
     }
 
     fn init_time(&mut self, now: Instant) {
+        // The operation is somewhat expensive, hence we only do it once.
+        if !self.need_init_time {
+            return;
+        }
+
         // We assume this first "now" is a time 0 start point for calculating ntp/unix time offsets.
         // This initializes the conversion of Instant -> NTP/Unix time.
         let _ = now.to_unix_duration();
+
+        self.need_init_time = false;
     }
 
     fn do_handle_timeout(&mut self, now: Instant) -> Result<(), RtcError> {
@@ -1570,9 +1606,9 @@ impl Rtc {
 
         trace!("IN {:?}", r);
         self.last_now = now;
-        use net::DatagramRecv::*;
+        use DatagramRecvInner::*;
 
-        let bytes_rx = match r.contents {
+        let bytes_rx = match r.contents.inner {
             // TODO: stun is already parsed (depacketized) here
             Stun(_) => 0,
             Dtls(v) | Rtp(v) | Rtcp(v) => v.len(),
@@ -1580,10 +1616,19 @@ impl Rtc {
 
         self.peer_bytes_rx += bytes_rx as u64;
 
-        match r.contents {
-            Stun(_) => self.ice.handle_receive(now, r),
-            Dtls(_) => self.dtls.handle_receive(r)?,
-            Rtp(_) | Rtcp(_) => self.session.handle_receive(now, r),
+        match r.contents.inner {
+            Stun(stun) => {
+                let packet = io::StunPacket {
+                    proto: r.proto,
+                    source: r.source,
+                    destination: r.destination,
+                    message: stun,
+                };
+                self.ice.handle_packet(now, packet);
+            }
+            Dtls(dtls) => self.dtls.handle_receive(dtls)?,
+            Rtp(rtp) => self.session.handle_rtp_receive(now, rtp),
+            Rtcp(rtcp) => self.session.handle_rtcp_receive(now, rtcp),
         }
 
         Ok(())
@@ -1642,24 +1687,6 @@ impl Rtc {
     pub fn codec_config(&self) -> &CodecConfig {
         &self.session.codec_config
     }
-
-    /// All media mids (not application). For integration tests.
-    #[doc(hidden)]
-    pub fn mids(&self) -> Vec<Mid> {
-        self.session.medias.iter().map(Media::mid).collect()
-    }
-
-    /// All current RTP header extensions. For integration tests.
-    #[doc(hidden)]
-    pub fn exts(&self) -> &ExtensionMap {
-        &self.session.exts
-    }
-
-    /// Current local ICE credentials. For integration tests.
-    #[doc(hidden)]
-    pub fn local_ice_creds(&self) -> IceCreds {
-        self.ice.local_credentials().clone()
-    }
 }
 
 /// Customized config for creating an [`Rtc`] instance.
@@ -1675,7 +1702,7 @@ impl Rtc {
 /// Configs implement [`Clone`] to help create multiple `Rtc` instances.
 #[derive(Debug, Clone)]
 pub struct RtcConfig {
-    local_ice_credentials: IceCreds,
+    local_ice_credentials: Option<IceCreds>,
     dtls_cert: Option<DtlsCert>,
     fingerprint_verification: bool,
     ice_lite: bool,
@@ -1698,9 +1725,18 @@ impl RtcConfig {
         RtcConfig::default()
     }
 
-    /// The auto generated local ice credentials.
-    pub fn local_ice_credentials(&self) -> &IceCreds {
+    /// Get the local ICE credentials, if set.
+    ///
+    /// If not specified, local credentials will be randomly generated when
+    /// building the [`Rtc`] instance.
+    pub fn local_ice_credentials(&self) -> &Option<IceCreds> {
         &self.local_ice_credentials
+    }
+
+    /// Explicitly sets local ICE credentials.
+    pub fn set_local_ice_credentials(mut self, local_ice_credentials: IceCreds) -> Self {
+        self.local_ice_credentials = Some(local_ice_credentials);
+        self
     }
 
     /// Get the configured DTLS certificate, if set.
@@ -1711,8 +1747,7 @@ impl RtcConfig {
     /// DTLS fingerprint.
     ///
     /// ```
-    /// use str0m::RtcConfig;
-    ///
+    /// # use str0m::RtcConfig;
     /// let fingerprint = RtcConfig::default()
     ///     .build()
     ///     .direct_api()
@@ -1728,10 +1763,9 @@ impl RtcConfig {
     /// Use this API to reuse a previously created [`DtlsCert`] if available.
     ///
     /// ```
-    /// use str0m::RtcConfig;
-    /// use str0m::change::DtlsCert;
-    ///
-    /// let dtls_cert = DtlsCert::new();
+    /// # use str0m::RtcConfig;
+    /// # use str0m::change::DtlsCert;
+    /// let dtls_cert = DtlsCert::new_openssl();
     ///
     /// let rtc_config = RtcConfig::default()
     ///     .set_dtls_cert(dtls_cert);
@@ -1756,10 +1790,11 @@ impl RtcConfig {
     /// Get fingerprint verification mode.
     ///
     /// ```
-    /// # use str0m::RtcConfig;
+    /// # use str0m::Rtc;
+    /// let config = Rtc::builder();
     ///
-    /// // Verify that fingerprint verification is enabled by default.
-    /// assert!(RtcConfig::default().fingerprint_verification());
+    /// // Defaults to true.
+    /// assert!(config.fingerprint_verification());
     /// ```
     pub fn fingerprint_verification(&self) -> bool {
         self.fingerprint_verification
@@ -1795,7 +1830,6 @@ impl RtcConfig {
     ///
     /// ```
     /// # use str0m::RtcConfig;
-    ///
     /// // For the session to use only OPUS and VP8.
     /// let mut rtc = RtcConfig::default()
     ///     .clear_codecs()
@@ -1868,6 +1902,12 @@ impl RtcConfig {
     /// ```
     pub fn extension_map(&mut self) -> &mut ExtensionMap {
         &mut self.exts
+    }
+
+    /// Set the extension map replacing the existing.
+    pub fn set_extension_map(mut self, exts: ExtensionMap) -> Self {
+        self.exts = exts;
+        self
     }
 
     /// Clear out the standard extension mappings.
@@ -2013,6 +2053,8 @@ impl RtcConfig {
     /// fits in one. If you can guarantee that every `write()` is a single RTP packet, and is always
     /// followed by a `poll_output()`, it might be possible to set this value to 1. But that would give
     /// no margins for unexpected patterns.
+    ///
+    /// panics if set to 0.
     pub fn set_send_buffer_audio(mut self, size: usize) -> Self {
         assert!(size > 0);
         self.send_buffer_audio = size;
@@ -2106,7 +2148,7 @@ impl RtcConfig {
 impl Default for RtcConfig {
     fn default() -> Self {
         Self {
-            local_ice_credentials: IceCreds::new(),
+            local_ice_credentials: None,
             dtls_cert: None,
             fingerprint_verification: true,
             ice_lite: false,
@@ -2206,13 +2248,10 @@ mod test {
     #[test]
     fn event_is_reasonably_sized() {
         let n = std::mem::size_of::<Event>();
-        println!("{:?}", n);
         assert!(n < 450);
     }
 }
 
-#[cfg(fuzzing)]
+#[cfg(feature = "_internal_test_exports")]
 #[allow(missing_docs)]
-pub mod fuzz {
-    pub use crate::streams::rtx_cache_buf::EvictingBuffer;
-}
+pub mod _internal_test_exports;

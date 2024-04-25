@@ -1,9 +1,47 @@
 # Unreleased
-  * MediaTime improvements (Frequency and safety)
+
+# 0.5.1
+
+  * Expose STUN packet split_username() fn #505
+  * IceAgent fix to not invalidate unrelated remote candidates #504
+  * Expose ice credentials as configuration option #502
+  * Bug fix in lazy NACK handling #501
+  * Net structs Transmit/Receive serde Serializable #500
+  * Payload matching for VP9 #499
+  * IceAgent allow invalidating remote candidates #498
+  * Avoid panic on too early DTLS traffic #495
+  * `IceAgent::handle_packet` return false if packet not accepted #493
+  * Don't panic on STUN requests for unknown NICs #493
+  * Improve IceAgent `accepts_message` to avoid panic in some situations #488
+
+# 0.5.0
+  * Opus DTX support #492
+  * RtcConfig does not generate the ICE creds #491
+  * Accept all good remote address candidates, not just the nominated #487
+  * Improve performance by only calling `init_time` once #479
+  * Fix SCTP channel ID allocation bug when reusing channels #470
+  * Fix bug causing nomination of ICE candidate pair that isn't better #463
+  * Lower STUN_TIMEOUT for quicker connection checking #462
+  * Fix bug making SCTP fail under packet loss #482
+  * Add `base` parameter to `Candidate::server_reflexive` (breaking) #455
+  * Refactor all OpenSSL (and other crypto code) to mod crypto #449
+  * Fix bugs in RTX PT selection for BWE padding #454
+  * Don't enable NACK timers unless there are stream to nack
+  * Fix bug in BWE trendline estimator
+  * Fix (unlikely) nack overflow error
+  * Speed up twcc register updates using max_seq()
+  * Parse `StunMessage` without allocations (and huge STUN parsing cleanup)
+  * Introduce top-level `ice` module having `ice::IceAgent` for standalone usage
+  * Remove `StunError::Other` because it was unused
+  * Optional parser for VLA (Video Layers Allocation) RTP header extension
+  * Chat example send PLI on RTC sequence interruption
+  * VP9 contiguity checks in depacketizer
+  * Improved VP9 support with parsing layer metadata
+  * Fix race in chat example on client disconnect
+  * MediaTime improve safety with Frequency newtype (breaking)
   * Header extension abs_send_time is now an Instant
   * Handle more optional a=candidate parameters
   * Support REMB (receiver estimated maximum bitrate) feedback packets (breaking)
-
 
 # 0.4.1
   * Generated DTLS certificates set issuer/subject for compat with OBS/libdatachannel
@@ -48,7 +86,7 @@
   * Major refactor of Media/Stream handling (we call it "kaboom")
   * RTP Mode (directly using RTP packets)
   * Bandwidth Estimation (BWE)
-  * Direct API for SDP-free control    
+  * Direct API for SDP-free control
   * SDP Api to formalize SDP handling
 
 # 0.1.0

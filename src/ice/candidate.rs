@@ -177,8 +177,10 @@ impl Candidate {
     ///
     /// Server reflexive candidates are local sockets mapped to external ip discovered
     /// via a STUN binding request.
+    /// The `base` is the local interface that this address corresponds to.
     pub fn server_reflexive(
         addr: SocketAddr,
+        base: SocketAddr,
         proto: impl TryInto<Protocol>,
     ) -> Result<Self, IceError> {
         if !is_valid_ip(addr.ip()) {
@@ -191,7 +193,7 @@ impl Candidate {
             parse_proto(proto)?,
             None,
             addr,
-            Some(addr),
+            Some(base),
             CandidateKind::ServerReflexive,
             None,
             None,
@@ -390,7 +392,8 @@ impl Candidate {
         self.raddr
     }
 
-    pub(crate) fn kind(&self) -> CandidateKind {
+    /// Returns the kind of this candidate.
+    pub fn kind(&self) -> CandidateKind {
         self.kind
     }
 
@@ -410,8 +413,7 @@ impl Candidate {
         self.ufrag = Some(ufrag.into());
     }
 
-    #[doc(hidden)]
-    pub fn ufrag(&self) -> Option<&str> {
+    pub(crate) fn ufrag(&self) -> Option<&str> {
         self.ufrag.as_deref()
     }
 

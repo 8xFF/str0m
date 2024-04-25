@@ -11,7 +11,7 @@ use crate::sdp::FormatParam;
 
 // These really don't belong anywhere, but I guess they're kind of related
 // to codecs etc.
-pub use crate::packet::{CodecExtra, Vp8CodecExtra};
+pub use crate::packet::{CodecExtra, H264CodecExtra, Vp8CodecExtra, Vp9CodecExtra};
 
 /// Session config for all codecs.
 #[derive(Debug, Clone, Default)]
@@ -137,6 +137,12 @@ pub struct FormatParams {
     ///
     /// Specifies that the decoder can do Opus in-band FEC
     pub use_inband_fec: Option<bool>,
+
+    /// Opus specific parameter.
+    ///
+    /// Specifies that the decoder prefers DTX (Discontinuous Transmission) such that
+    /// the packet rate is greatly lowered during periods of silence.
+    pub use_dtx: Option<bool>,
 
     /// Whether h264 sending media encoded at a different level in the offerer-to-answerer
     /// direction than the level in the answerer-to-offerer direction, is allowed.
@@ -288,6 +294,10 @@ impl PayloadParams {
             return Self::match_h264_score(c0, c1);
         }
 
+        if c0.codec == Codec::Vp9 {
+            return Self::match_vp9_score(c0, c1);
+        }
+
         // TODO: Fuzzy matching for any other audio codecs
         // TODO: Fuzzy matching for video
 
@@ -313,7 +323,26 @@ impl PayloadParams {
             score = score.saturating_sub(2);
         }
 
+        // If neither value is specified both sides should assume DTX is not used as this is
+        // the default.
+        let either_dtx_specified = c0.format.use_dtx.is_some() || c1.format.use_dtx.is_some();
+        if either_dtx_specified && c0.format.use_dtx != c1.format.use_dtx {
+            score = score.saturating_sub(4);
+        }
+
         score
+    }
+
+    fn match_vp9_score(c0: CodecSpec, c1: CodecSpec) -> Option<usize> {
+        // Default profile_id is 0. https://datatracker.ietf.org/doc/html/draft-ietf-payload-vp9-16#section-6
+        let c0_profile_id = c0.format.profile_id.unwrap_or(0);
+        let c1_profile_id = c1.format.profile_id.unwrap_or(0);
+
+        if c0_profile_id != c1_profile_id {
+            return None;
+        }
+
+        Some(100)
     }
 
     fn match_h264_score(c0: CodecSpec, c1: CodecSpec) -> Option<usize> {
@@ -389,12 +418,6 @@ impl PayloadParams {
                 claimed.assert_claim_once(rtx);
             }
         }
-    }
-
-    /// Exposed for integration tests.
-    #[doc(hidden)]
-    pub fn is_locked(&self) -> bool {
-        self.locked
     }
 }
 
@@ -784,6 +807,7 @@ impl FormatParams {
         match param {
             MinPTime(v) => self.min_p_time = Some(*v),
             UseInbandFec(v) => self.use_inband_fec = Some(*v),
+            UseDtx(v) => self.use_dtx = Some(*v),
             LevelAsymmetryAllowed(v) => self.level_asymmetry_allowed = Some(*v),
             PacketizationMode(v) => self.packetization_mode = Some(*v),
             ProfileLevelId(v) => self.profile_level_id = Some(*v),
@@ -802,6 +826,9 @@ impl FormatParams {
         }
         if let Some(v) = self.use_inband_fec {
             r.push(UseInbandFec(v));
+        }
+        if let Some(v) = self.use_dtx {
+            r.push(UseDtx(v));
         }
         if let Some(v) = self.level_asymmetry_allowed {
             r.push(LevelAsymmetryAllowed(v));
@@ -919,6 +946,7 @@ mod test {
             format: FormatParams {
                 min_p_time: None,
                 use_inband_fec: None,
+                use_dtx: None,
                 level_asymmetry_allowed,
                 packetization_mode,
                 profile_level_id,

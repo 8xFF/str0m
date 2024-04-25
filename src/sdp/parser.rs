@@ -8,10 +8,10 @@ use {
     combine::{ParseError, Parser, Stream},
 };
 
-use crate::dtls::Fingerprint;
-use crate::ice::{Candidate, CandidateKind};
+use crate::crypto::Fingerprint;
 use crate::rtp_::{Direction, Extension, Frequency, Mid, Pt, SessionId, Ssrc};
 use crate::sdp::SdpError;
+use crate::{Candidate, CandidateKind};
 
 use super::data::*;
 
@@ -317,8 +317,7 @@ where
 }
 
 /// Parser for a=candidate lines.
-#[doc(hidden)]
-pub fn candidate_attribute<Input>() -> impl Parser<Input, Output = Candidate>
+pub(crate) fn candidate_attribute<Input>() -> impl Parser<Input, Output = Candidate>
 where
     Input: Stream<Token = char>,
     Input::Error: ParseError<Input::Token, Input::Range, Input::Position>,

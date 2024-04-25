@@ -15,8 +15,8 @@ use rouille::Server;
 use rouille::{Request, Response};
 use str0m::change::{SdpAnswer, SdpOffer, SdpPendingOffer};
 use str0m::channel::{ChannelData, ChannelId};
-use str0m::media::MediaKind;
 use str0m::media::{Direction, KeyframeRequest, MediaData, Mid, Rid};
+use str0m::media::{KeyframeRequestKind, MediaKind};
 use str0m::net::Protocol;
 use str0m::{net::Receive, Candidate, Event, IceConnectionState, Input, Output, Rtc, RtcError};
 
@@ -119,7 +119,7 @@ fn run(socket: UdpSocket, rx: Receiver<Rtc>) -> Result<(), RtcError> {
         if let Some(mut client) = spawn_new_client(&rx) {
             // Add incoming tracks present in other already connected clients.
             for track in clients.iter().flat_map(|c| c.tracks_in.iter()) {
-                let weak = Arc::downgrade(track);
+                let weak = Arc::downgrade(&track.id);
                 client.handle_track_open(weak);
             }
 
@@ -185,6 +185,11 @@ fn poll_until_timeout(
     socket: &UdpSocket,
 ) -> Instant {
     loop {
+        if !client.rtc.is_alive() {
+            // This client will be cleaned up in the next run of the main loop.
+            return Instant::now();
+        }
+
         let propagated = client.poll_output(socket);
 
         if let Propagated::Timeout(t) = propagated {
@@ -212,7 +217,7 @@ fn propagate(propagated: &Propagated, clients: &mut [Client]) {
 
         match &propagated {
             Propagated::TrackOpen(_, track_in) => client.handle_track_open(track_in.clone()),
-            Propagated::MediaData(_, data) => client.handle_media_data(client_id, data),
+            Propagated::MediaData(_, data) => client.handle_media_data_out(client_id, data),
             Propagated::KeyframeRequest(_, req, origin, mid_in) => {
                 // Only one origin client handles the keyframe request.
                 if *origin == client.id {
@@ -262,7 +267,7 @@ struct Client {
     rtc: Rtc,
     pending: Option<SdpPendingOffer>,
     cid: Option<ChannelId>,
-    tracks_in: Vec<Arc<TrackIn>>,
+    tracks_in: Vec<TrackInEntry>,
     tracks_out: Vec<TrackOut>,
     chosen_rid: Option<Rid>,
 }
@@ -283,6 +288,12 @@ struct TrackIn {
     origin: ClientId,
     mid: Mid,
     kind: MediaKind,
+}
+
+#[derive(Debug)]
+struct TrackInEntry {
+    id: Arc<TrackIn>,
+    last_keyframe_request: Option<Instant>,
 }
 
 #[derive(Debug)]
@@ -377,7 +388,7 @@ impl Client {
                     Propagated::Noop
                 }
                 Event::MediaAdded(e) => self.handle_media_added(e.mid, e.kind),
-                Event::MediaData(data) => Propagated::MediaData(self.id, data),
+                Event::MediaData(data) => self.handle_media_data_in(data),
                 Event::KeyframeRequest(req) => self.handle_incoming_keyframe_req(req),
                 Event::ChannelOpen(cid, _) => {
                     self.cid = Some(cid);
@@ -404,18 +415,56 @@ impl Client {
     }
 
     fn handle_media_added(&mut self, mid: Mid, kind: MediaKind) -> Propagated {
-        let track_in = Arc::new(TrackIn {
-            origin: self.id,
-            mid,
-            kind,
-        });
+        let track_in = TrackInEntry {
+            id: Arc::new(TrackIn {
+                origin: self.id,
+                mid,
+                kind,
+            }),
+            last_keyframe_request: None,
+        };
 
         // The Client instance owns the strong reference to the incoming
         // track, all other clients have a weak reference.
-        let weak = Arc::downgrade(&track_in);
+        let weak = Arc::downgrade(&track_in.id);
         self.tracks_in.push(track_in);
 
         Propagated::TrackOpen(self.id, weak)
+    }
+
+    fn handle_media_data_in(&mut self, data: MediaData) -> Propagated {
+        if !data.contiguous {
+            self.request_keyframe_throttled(data.mid, data.rid, KeyframeRequestKind::Fir);
+        }
+
+        Propagated::MediaData(self.id, data)
+    }
+
+    fn request_keyframe_throttled(
+        &mut self,
+        mid: Mid,
+        rid: Option<Rid>,
+        kind: KeyframeRequestKind,
+    ) {
+        let Some(mut writer) = self.rtc.writer(mid) else {
+            return;
+        };
+
+        let Some(track_entry) = self.tracks_in.iter_mut().find(|t| t.id.mid == mid) else {
+            return;
+        };
+
+        if track_entry
+            .last_keyframe_request
+            .map(|t| t.elapsed() < Duration::from_secs(1))
+            .unwrap_or(false)
+        {
+            return;
+        }
+
+        _ = writer.request_keyframe(rid, kind);
+
+        track_entry.last_keyframe_request = Some(Instant::now());
     }
 
     fn handle_incoming_keyframe_req(&self, mut req: KeyframeRequest) -> Propagated {
@@ -534,7 +583,7 @@ impl Client {
         self.tracks_out.push(track_out);
     }
 
-    fn handle_media_data(&mut self, origin: ClientId, data: &MediaData) {
+    fn handle_media_data_out(&mut self, origin: ClientId, data: &MediaData) {
         // Figure out which outgoing track maps to the incoming media data.
         let Some(mid) = self
             .tracks_out
@@ -578,7 +627,7 @@ impl Client {
     }
 
     fn handle_keyframe_request(&mut self, req: KeyframeRequest, mid_in: Mid) {
-        let has_incoming_track = self.tracks_in.iter().any(|i| i.mid == mid_in);
+        let has_incoming_track = self.tracks_in.iter().any(|i| i.id.mid == mid_in);
 
         // This will be the case for all other client but the one where the track originates.
         if !has_incoming_track {

@@ -4,8 +4,7 @@
 use thiserror::Error;
 
 mod agent;
-pub(crate) use agent::{IceAgent, IceAgentEvent};
-pub use agent::{IceConnectionState, IceCreds};
+pub use agent::{IceAgent, IceAgentEvent, IceConnectionState, IceCreds};
 
 mod candidate;
 pub use candidate::{Candidate, CandidateKind};
@@ -74,9 +73,9 @@ mod test {
     use std::ops::{Deref, DerefMut};
     use std::time::{Duration, Instant};
 
-    use crate::io::Protocol;
-    use crate::io::Receive;
+    use crate::io::{Protocol, StunMessage, StunPacket, STUN_TIMEOUT};
     use tracing::Span;
+    use tracing_subscriber::util::SubscriberInitExt;
 
     pub fn sock(s: impl Into<String>) -> SocketAddr {
         let s: String = s.into();
@@ -85,6 +84,18 @@ mod test {
 
     pub fn host(s: impl Into<String>, proto: impl TryInto<Protocol>) -> Candidate {
         Candidate::host(sock(s), proto).unwrap()
+    }
+
+    pub fn srflx(
+        s: impl Into<String>,
+        base: impl Into<String>,
+        proto: impl TryInto<Protocol>,
+    ) -> Candidate {
+        Candidate::server_reflexive(sock(s), sock(base), proto).unwrap()
+    }
+
+    pub fn relay(s: impl Into<String>, proto: impl TryInto<Protocol>) -> Candidate {
+        Candidate::relayed(sock(s), proto).unwrap()
     }
 
     /// Transform the socket to rig different test scenarios.
@@ -174,7 +185,7 @@ mod test {
                 *e,
                 IceAgentEvent::IceConnectionStateChange(IceConnectionState::Disconnected)
             );
-            assert!(*d > Duration::from_secs(15));
+            assert!(*d > STUN_TIMEOUT);
         }
 
         let (d, e) = a1.events.last().unwrap();
@@ -248,6 +259,106 @@ mod test {
                 nomination_send_count: 1,
             }
         );
+    }
+
+    #[test]
+    pub fn no_respond_to_stun_request_on_invalidated_candidate() {
+        let mut a1 = TestAgent::new(info_span!("L"));
+        let mut a2 = TestAgent::new(info_span!("R"));
+
+        let c1 = host("1.1.1.1:1000", "udp");
+        a1.add_local_candidate(c1.clone());
+        a2.add_remote_candidate(c1.clone());
+        let c2 = host("2.2.2.2:1000", "udp");
+        a2.add_local_candidate(c2.clone());
+        a1.add_remote_candidate(c2);
+        a1.set_controlling(true);
+        a2.set_controlling(false);
+
+        loop {
+            if a1.state().is_connected() && a2.state().is_connected() {
+                break;
+            }
+            progress(&mut a1, &mut a2);
+        }
+
+        a1.agent.invalidate_candidate(&c1);
+
+        let timeout = a2.poll_timeout().unwrap();
+        a2.handle_timeout(timeout);
+        let transmit = a2.poll_transmit().unwrap();
+
+        assert!(a1.poll_transmit().is_none());
+
+        a1.handle_packet(
+            Instant::now(),
+            StunPacket {
+                proto: Protocol::Udp,
+                source: sock("2.2.2.2:1000"),
+                destination: sock("1.1.1.1:1000"),
+                message: StunMessage::parse(&transmit.contents).unwrap(),
+            },
+        );
+
+        assert!(a1.poll_transmit().is_none());
+    }
+
+    #[test]
+    pub fn migrates_to_new_candidates_after_invalidation_without_timeout() {
+        let _guard = tracing_subscriber::fmt()
+            .with_env_filter("debug")
+            .with_test_writer()
+            .set_default();
+
+        let mut a1 = TestAgent::new(info_span!("L"));
+        let mut a2 = TestAgent::new(info_span!("R"));
+
+        let c1 = host("1.1.1.1:1000", "udp");
+        a1.add_local_candidate(c1.clone());
+        a2.add_remote_candidate(c1.clone());
+
+        let c2 = host("2.2.2.2:1000", "udp");
+        a1.add_remote_candidate(c2.clone());
+        a2.add_local_candidate(c2.clone());
+
+        a1.set_controlling(true);
+        a2.set_controlling(false);
+
+        loop {
+            if a1.state().is_connected() && a2.state().is_connected() {
+                break;
+            }
+            progress(&mut a1, &mut a2);
+        }
+
+        let a1_time = a1.time;
+        let a2_time = a2.time;
+        let new_sock = sock("8.8.8.8:1000");
+
+        let c3 = Candidate::host(new_sock, Protocol::Udp).unwrap();
+        a1.add_local_candidate(c3.clone());
+        a2.add_remote_candidate(c3);
+
+        a1.agent.invalidate_candidate(&c1);
+        a2.agent.invalidate_candidate(&c1);
+
+        loop {
+            let a1_nominated = a1.has_event(
+                |e| matches!(e, IceAgentEvent::NominatedSend { source, .. } if source == &new_sock),
+            );
+            let a2_nominated = a2.has_event(
+                |e| matches!(e, IceAgentEvent::NominatedSend { destination, .. } if destination == &new_sock)
+            );
+
+            if a1_nominated && a2_nominated {
+                break;
+            }
+
+            progress(&mut a1, &mut a2);
+        }
+
+        assert!(a1.time.duration_since(a1_time) < STUN_TIMEOUT);
+        assert!(a2.time.duration_since(a2_time) < STUN_TIMEOUT);
     }
 
     #[test]
@@ -445,6 +556,53 @@ mod test {
         }
     }
 
+    #[test]
+    pub fn candidate_pair_of_same_kind_does_not_get_nominated() {
+        let mut a1 = TestAgent::new(info_span!("L"));
+        let mut a2 = TestAgent::new(info_span!("R"));
+
+        let c1 = relay("1.1.1.1:1000", "udp");
+        a1.add_local_candidate(c1.clone());
+        a2.add_remote_candidate(c1);
+        let c2 = srflx("4.4.4.4:1000", "3.3.3.3:1000", "udp");
+        let c3 = host("3.3.3.3:1000", "udp");
+        a2.add_local_candidate(c2.clone());
+        a1.add_remote_candidate(c2);
+        a2.add_local_candidate(c3.clone());
+        a1.add_remote_candidate(c3);
+
+        a1.set_controlling(true);
+        a2.set_controlling(false);
+
+        // loop until we're connected.
+        loop {
+            if a1.state().is_connected() && a2.state().is_connected() {
+                break;
+            }
+            progress(&mut a1, &mut a2);
+        }
+
+        a1.add_local_candidate(relay("1.1.1.1:1001", "udp"));
+        a2.add_remote_candidate(relay("1.1.1.1:1001", "udp"));
+
+        loop {
+            if a2.has_event(|e| {
+                matches!(e, IceAgentEvent::DiscoveredRecv { source, .. } if source == &sock("1.1.1.1:1001"))
+            }) {
+                break;
+            }
+
+            progress(&mut a1, &mut a2);
+        }
+
+        assert!(!a1.has_event(|e| {
+            matches!(e, IceAgentEvent::NominatedSend { source, .. } if source == &sock("1.1.1.1:1001"))
+        }));
+        assert!(!a2.has_event(|e| {
+            matches!(e, IceAgentEvent::NominatedSend { destination, .. } if destination == &sock("1.1.1.1:1001"))
+        }));
+    }
+
     pub struct TestAgent {
         pub start_time: Instant,
         pub agent: IceAgent,
@@ -468,6 +626,10 @@ mod test {
                 drop_sent_packets: false,
             }
         }
+
+        fn has_event(&self, predicate: impl Fn(&IceAgentEvent) -> bool) -> bool {
+            self.events.iter().any(|(_, e)| predicate(e))
+        }
     }
 
     pub fn progress(a1: &mut TestAgent, a2: &mut TestAgent) {
@@ -483,18 +645,22 @@ mod test {
         }
 
         if let Some(trans) = f.span.in_scope(|| f.agent.poll_transmit()) {
-            let mut receive = Receive::try_from(&trans).unwrap();
+            let message =
+                StunMessage::parse(&trans.contents).expect("IceAgent to only emit StunMessages");
 
             // rewrite receive with test transforms, and potentially drop the packet.
-            if let Some((source, destination)) = transform(receive.source, receive.destination) {
-                receive.source = source;
-                receive.destination = destination;
-
+            if let Some((source, destination)) = transform(trans.source, trans.destination) {
                 if f.drop_sent_packets {
                     // drop packet
                     t.span.in_scope(|| t.agent.handle_timeout(t.time));
                 } else {
-                    t.span.in_scope(|| t.agent.handle_receive(t.time, receive));
+                    let packet = StunPacket {
+                        proto: trans.proto,
+                        source,
+                        destination,
+                        message,
+                    };
+                    t.span.in_scope(|| t.agent.handle_packet(t.time, packet));
                 }
             } else {
                 // drop packet
