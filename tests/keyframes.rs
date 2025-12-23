@@ -64,7 +64,7 @@ pub fn test_vp8_keyframes_detection() -> Result<(), RtcError> {
             header.marker,
             header.ext_vals,
             true,
-            payload,
+            payload.into(),
         )
         .unwrap();
 
@@ -154,7 +154,7 @@ pub fn test_vp9_keyframes_detection() -> Result<(), RtcError> {
             header.marker,
             header.ext_vals,
             true,
-            payload,
+            payload.into(),
         )
         .unwrap();
 
@@ -245,7 +245,7 @@ pub fn test_h264_keyframes_detection() -> Result<(), RtcError> {
             header.marker,
             header.ext_vals,
             true,
-            payload,
+            payload.into(),
         )
         .unwrap();
 

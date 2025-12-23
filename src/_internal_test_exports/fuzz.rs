@@ -105,7 +105,7 @@ pub fn depack(data: &[u8]) -> Option<()> {
                 last_sender_info: None,
             };
             let len = rng.usize(1200)?;
-            let data = rng.slice(len)?.to_vec();
+            let data = rng.slice(len)?.to_vec().into();
             depack.push(meta, data);
         } else {
             depack.pop();

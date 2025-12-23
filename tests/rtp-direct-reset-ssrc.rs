@@ -85,7 +85,7 @@ pub fn rtp_direct_reset_ssrc() -> Result<(), RtcError> {
                         false,
                         exts,
                         false,
-                        packet.to_vec(),
+                        packet.to_vec().into(),
                     )
                     .expect("clean write with initial SSRC");
             }
@@ -162,7 +162,7 @@ pub fn rtp_direct_reset_ssrc() -> Result<(), RtcError> {
                         false,
                         exts,
                         false,
-                        packet.to_vec(),
+                        packet.to_vec().into(),
                     )
                     .expect("clean write with new SSRC");
             }

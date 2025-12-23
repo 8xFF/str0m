@@ -78,7 +78,7 @@ pub fn audio_start_of_talk_spurt() -> Result<(), RtcError> {
                         *seq_no % 2 == 0, // set marker bit on every second packet
                         exts,
                         false,
-                        packet.to_vec(),
+                        packet.to_vec().into(),
                     )
                     .expect("clean write");
             }

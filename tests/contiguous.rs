@@ -209,7 +209,7 @@ impl Server {
                 header.marker,
                 header.ext_vals,
                 true,
-                payload,
+                payload.into(),
             )
             .unwrap();
 

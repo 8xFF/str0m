@@ -83,7 +83,7 @@ pub fn rtp_direct_mid_rid() -> Result<(), RtcError> {
                         false,
                         exts,
                         false,
-                        packet.to_vec(),
+                        packet.to_vec().into(),
                     )
                     .expect("clean write");
             }

@@ -65,7 +65,7 @@ pub fn srtp_replay_attack_rtp_mode() -> Result<(), RtcError> {
                     false,
                     exts,
                     false,
-                    vec![1, 3, 3, 7],
+                    vec![1, 3, 3, 7].into(),
                 )
                 .expect("clean write");
             send_count += 1;
@@ -170,7 +170,7 @@ pub fn srtp_replay_attack_frame_mode() -> Result<(), RtcError> {
                     false,
                     exts,
                     false,
-                    vec![1, 3, 3, 7],
+                    vec![1, 3, 3, 7].into(),
                 )
                 .expect("clean write");
             send_count += 1;

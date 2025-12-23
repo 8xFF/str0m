@@ -73,7 +73,7 @@ pub fn vla_rtp_mode() -> Result<(), RtcError> {
             false,
             exts,
             false,
-            vec![0xAA; 10],
+            vec![0xAA; 10].into(),
         )
         .unwrap();
 

@@ -527,7 +527,7 @@ impl Session {
             return;
         }
 
-        let packet = stream.handle_rtp(now, header, data, seq_no, receipt.time);
+        let packet = stream.handle_rtp(now, header, data.into(), seq_no, receipt.time);
 
         if self.rtp_mode {
             // In RTP mode, we store the packet temporarily here for the next poll_output().

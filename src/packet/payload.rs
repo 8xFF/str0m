@@ -60,7 +60,7 @@ impl Payloader {
                 marker,
                 ext_vals.clone(),
                 nackable,
-                data,
+                data.into(),
             )?;
         }
 

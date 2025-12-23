@@ -86,7 +86,7 @@ pub fn rtx_cache_0() -> Result<(), RtcError> {
                         false,
                         exts,
                         false,
-                        packet.to_vec(),
+                        packet.to_vec().into(),
                     )
                     .expect("clean write");
             }

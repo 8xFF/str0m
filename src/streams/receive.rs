@@ -1,6 +1,8 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use bytes::Bytes;
+
 use crate::media::KeyframeRequestKind;
 use crate::rtp_::MidRid;
 use crate::rtp_::{extend_u32, Bitrate, DlrrItem, ExtendedReport};
@@ -429,7 +431,7 @@ impl StreamRx {
         &mut self,
         now: Instant,
         header: RtpHeader,
-        data: Vec<u8>,
+        data: Bytes,
         seq_no: SeqNo,
         time: MediaTime,
     ) -> RtpPacket {

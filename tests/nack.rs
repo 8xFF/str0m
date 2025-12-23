@@ -73,7 +73,7 @@ pub fn loss_recovery() -> Result<(), RtcError> {
                 false,
                 exts,
                 true,
-                to_write.to_vec(),
+                to_write.to_vec().into(),
             )
             .expect("clean write");
 
@@ -272,7 +272,7 @@ pub fn nack_delay() -> Result<(), RtcError> {
                         false,
                         exts,
                         true,
-                        packet.to_vec(),
+                        packet.to_vec().into(),
                     )
                     .expect("clean write");
             }

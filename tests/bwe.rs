@@ -372,7 +372,7 @@ impl BweTestContext {
                         false,
                         exts,
                         true,
-                        payload,
+                        payload.into(),
                     )
                     .expect("clean write");
 

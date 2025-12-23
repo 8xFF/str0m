@@ -70,7 +70,7 @@ pub fn repeated() -> Result<(), RtcError> {
                     false,
                     exts,
                     false,
-                    vec![0x01, 0x02, 0x03, 0x04],
+                    vec![0x01, 0x02, 0x03, 0x04].into(),
                 )
                 .expect("clean write");
         }

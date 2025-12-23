@@ -26,6 +26,7 @@ mod send;
 mod send_queue;
 mod send_stats;
 
+use bytes::Bytes;
 pub(crate) use send::{DEFAULT_RTX_CACHE_DURATION, DEFAULT_RTX_RATIO_CAP};
 
 // Time between regular receiver reports.
@@ -61,7 +62,7 @@ pub struct RtpPacket {
     pub header: RtpHeader,
 
     /// RTP payload. This contains no header.
-    pub payload: Vec<u8>,
+    pub payload: Bytes,
 
     /// str0m server timestamp.
     ///
@@ -112,7 +113,7 @@ impl RtpPacket {
                 payload_type: BLANK_PACKET_DEFAULT_PT,
                 ..Default::default()
             },
-            payload: vec![], // This payload is never used. See RtpHeader::create_padding_packet
+            payload: Bytes::new(), // This payload is never used. See RtpHeader::create_padding_packet
             nackable: false,
             last_sender_info: None,
             timestamp: already_happened(),

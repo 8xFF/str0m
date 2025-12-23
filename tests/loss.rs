@@ -79,7 +79,7 @@ fn run_loss_test(loss_model: impl Into<LossModel>, seed: u64) -> Result<usize, R
             header.marker,
             Default::default(), // Don't use pcap ext_vals - wrong extension mapping
             true,
-            payload,
+            payload.into(),
         )
         .unwrap();
 
